@@ -14,7 +14,8 @@ pub const AnimationController = struct {
         var timer = try std.time.Timer.start();
         var tree_state = tree.TreeState.init();
         const stdout_file = std.fs.File.stdout();
-        var terminal_renderer = renderer.SimpleRenderer.init(stdout_file.writer());
+        var writer_buffer: [4096]u8 = undefined;
+        var terminal_renderer = renderer.SimpleRenderer.init(stdout_file, stdout_file.writer(&writer_buffer));
 
         _ = &timer; // Suppress unused warnings
         _ = &tree_state;
@@ -48,7 +49,7 @@ pub const AnimationController = struct {
             try self.terminal_renderer.renderTree(self.tree_state);
 
             // Sleep to prevent excessive CPU usage
-            std.time.sleep(constants.REFRESH_INTERVAL_MS * 1_000_000);
+            std.posix.nanosleep(0, constants.REFRESH_INTERVAL_MS * 1_000_000);
         }
     }
 

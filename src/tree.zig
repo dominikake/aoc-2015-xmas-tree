@@ -8,10 +8,11 @@ pub const TreeCell = struct {
     color: colors.AnsiColor,
     cell_type: constants.CellType,
     changed: bool = false,
+    is_fixed: bool = false,
 };
 
 pub const TreeState = struct {
-    cells: [constants.TREE_HEIGHT][27]TreeCell, // 30 lines, max 27 chars
+    cells: [constants.TREE_HEIGHT][49]TreeCell, // 30 lines, max 49 chars for line 25
     width_by_line: [constants.TREE_HEIGHT]usize,
     center_offset: usize,
     rng: std.Random.DefaultPrng,
@@ -20,7 +21,7 @@ pub const TreeState = struct {
         const seed: u64 = @intCast(std.time.timestamp());
         const prng = std.Random.DefaultPrng.init(seed);
         var tree = TreeState{
-            .cells = std.mem.zeroes([constants.TREE_HEIGHT][27]TreeCell),
+            .cells = std.mem.zeroes([constants.TREE_HEIGHT][51]TreeCell),
             .width_by_line = std.mem.zeroes([constants.TREE_HEIGHT]usize),
             .center_offset = 0,
             .rng = prng,
@@ -34,7 +35,7 @@ pub const TreeState = struct {
         // Clear all cells first
         for (0..constants.TREE_HEIGHT) |line| {
             self.width_by_line[line] = 0;
-            for (0..27) |col| {
+            for (0..49) |col| {
                 self.cells[line][col] = TreeCell{
                     .char = ' ',
                     .color = colors.AnsiColor.reset,
@@ -42,6 +43,7 @@ pub const TreeState = struct {
                     .changed = false,
                 };
             }
+        }
         }
 
         // Line 0: Star (centered)
@@ -57,7 +59,7 @@ pub const TreeState = struct {
         // Lines 1-25: Tree body (start at line 1, but width starts at 3)
         for (1..constants.TREE_LINES + 1) |i| {
             const line_num: usize = i; // 1 to 25
-            const width: usize = line_num + 2; // Start at width 3, go to 27
+            const width: usize = if (line_num == 0) 1 else (line_num * 2) - 1; // 1, 3, 5, 7, 9...
             self.width_by_line[line_num] = width;
 
             // Left foliage
@@ -78,10 +80,13 @@ pub const TreeState = struct {
 
             // Interior positions (between foliage)
             if (width > 2) {
+                var prev_was_decoration = false;
                 for (1..width - 1) |col| {
-                    const is_light = self.rng.random().float(f32) < 0.4; // 40% chance for light
-                    const cell_type = if (is_light) constants.CellType.light else constants.CellType.ornament;
-                    const char = if (is_light) constants.LIGHT_CHAR else constants.ORNAMENT_CHARS[self.rng.random().uintLessThan(usize, constants.ORNAMENT_CHARS.len)];
+                    // 30% fixed ornaments, 70% animated
+                    const is_fixed = self.rng.random().float(f32) < 0.3;
+                    const can_be_decoration = !prev_was_decoration and !is_fixed;
+                    const cell_type = if (can_be_decoration) constants.CellType.light else constants.CellType.ornament;
+                    const char = if (cell_type == .light) constants.LIGHT_CHAR else constants.ORNAMENT_CHARS[self.rng.random().uintLessThan(usize, constants.ORNAMENT_CHARS.len)];
                     const color = colors.getRandomColorForCell(cell_type, self.rng.random());
 
                     self.cells[line_num][col] = TreeCell{
@@ -89,7 +94,11 @@ pub const TreeState = struct {
                         .color = color,
                         .cell_type = cell_type,
                         .changed = true,
+                        .is_fixed = is_fixed,
                     };
+                    
+                    // Track if this position was a decoration for next iteration
+                    prev_was_decoration = (cell_type == .light or cell_type == .ornament);
                 }
             }
         }
@@ -122,7 +131,7 @@ pub const TreeState = struct {
                 for (1..width - 1) |col| {
                     var cell = &self.cells[line_num][col];
                     if (cell.cell_type == constants.CellType.ornament or cell.cell_type == constants.CellType.light) {
-                        const stability = if (cell.cell_type == constants.CellType.ornament) constants.ORNAMENT_STABILITY else constants.LIGHT_STABILITY;
+                        const stability: f32 = if (cell.cell_type == constants.CellType.ornament) constants.ORNAMENT_STABILITY else constants.LIGHT_STABILITY;
 
                         if (self.rng.random().float(f32) > stability) {
                             // Change this cell
