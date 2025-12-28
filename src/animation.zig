@@ -34,7 +34,9 @@ pub const AnimationController = struct {
         defer self.terminal_renderer.showCursor() catch {};
 
         // Initial render
-        try self.terminal_renderer.renderTree(self.tree_state);
+        try self.terminal_renderer.renderTree(&self.tree_state);
+
+        var last_render_time: u64 = 0;
 
         while (self.running) {
             const current_time = self.timer.read();
@@ -45,11 +47,17 @@ pub const AnimationController = struct {
                 self.last_randomization = current_time;
             }
 
-            // Render current state
-            try self.terminal_renderer.renderTree(self.tree_state);
+            // Only render if enough time has passed OR if there were changes
+            const time_since_last_render = current_time - last_render_time;
+            const should_render = time_since_last_render >= (constants.REFRESH_INTERVAL_MS * 1_000_000);
 
-            // Sleep to prevent excessive CPU usage
-            std.posix.nanosleep(0, constants.REFRESH_INTERVAL_MS * 1_000_000);
+            if (should_render) {
+                try self.terminal_renderer.renderTree(&self.tree_state);
+                last_render_time = current_time;
+            }
+
+            // Sleep to prevent excessive CPU usage - longer sleep for less CPU usage
+            std.posix.nanosleep(0, 50_000_000); // 50ms sleep for 20Hz responsiveness
         }
     }
 
