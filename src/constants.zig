@@ -20,7 +20,7 @@ pub const FOLIAGE_RIGHT = '<';
 pub const TRUNK_CHAR = '|';
 pub const STAR_CHAR = '*';
 
-pub const ORNAMENT_CHARS = [_]u8{ 'o', '0', '@' };
+pub const ORNAMENT_CHARS = [_]u8{ 'o', 'O', '@' };
 pub const LIGHT_CHAR = '*';
 
 // Animation timing

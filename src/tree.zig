@@ -83,20 +83,38 @@ pub const TreeState = struct {
                     (self.rng.random().float(f32) - 0.5) * constants.DENSITY_VARIANCE * 2;
                 const clamped_density = @max(0.1, @min(0.5, line_density));
 
-                var prev_was_decoration = false;
+                var prev_was_ornament: bool = false;
 
                 for (1..width - 1) |col| {
                     // 30% fixed ornaments, 70% animated
                     const is_fixed = self.rng.random().float(f32) < 0.3;
 
+                    // Check if previous was an ornament
+                    const prev_orn = prev_was_ornament;
+
                     // Check if this should be a decoration based on density and spacing rules
+                    // Rule: No two ornaments adjacent, always leave at least one foliage between
                     const density_roll = self.rng.random().float(f32);
-                    // Rule: No two ornaments adjacent, always leave at least one space/foliage between
-                    const can_be_decoration = !prev_was_decoration and !is_fixed and
+                    const can_be_decoration = !prev_orn and !is_fixed and
                         (density_roll < clamped_density);
 
-                    const cell_type = if (can_be_decoration) constants.CellType.light else constants.CellType.ornament;
-                    const char = if (cell_type == .light) constants.LIGHT_CHAR else constants.ORNAMENT_CHARS[self.rng.random().uintLessThan(usize, constants.ORNAMENT_CHARS.len)];
+                    const cell_type = if (can_be_decoration)
+                        if (self.rng.random().float(f32) < 0.4) constants.CellType.light else constants.CellType.ornament
+                    else
+                        constants.CellType.foliage;
+
+                    // Generate character
+                    var char: u8 = undefined;
+                    if (cell_type == .light) {
+                        char = constants.LIGHT_CHAR;
+                    } else if (cell_type == .ornament) {
+                        // Can place ornament
+                        char = constants.ORNAMENT_CHARS[self.rng.random().uintLessThan(usize, constants.ORNAMENT_CHARS.len)];
+                    } else {
+                        // Foliage - use random foliage character
+                        char = if (self.rng.random().uintLessThan(u8, 2) == 1) constants.FOLIAGE_LEFT else constants.FOLIAGE_RIGHT;
+                    }
+
                     const color = colors.getRandomColorForCell(cell_type, self.rng.random());
 
                     self.cells[line_num][col] = TreeCell{
@@ -107,12 +125,8 @@ pub const TreeState = struct {
                         .is_fixed = is_fixed,
                     };
 
-                    // Track decoration placement - ensure spacing between ornaments
-                    if (can_be_decoration) {
-                        prev_was_decoration = true;
-                    } else {
-                        prev_was_decoration = false;
-                    }
+                    // Track for next iteration
+                    prev_was_ornament = (cell_type == constants.CellType.ornament);
                 }
             }
         }
@@ -139,6 +153,77 @@ pub const TreeState = struct {
         self.width_by_line[constants.TREE_HEIGHT - 1] = 0;
     }
 
+    fn ensureMinimumOrnaments(self: *TreeState, line_num: usize, width: usize) void {
+        if (width <= 2) return; // No interior positions
+
+        // Calculate minimum ornaments needed: at least 1 per 3 characters of interior space
+        const interior_space = width - 2; // Excluding left and right foliage
+        const minimum_ornaments = @max(1, interior_space / 3);
+
+        // Count current ornaments and lights on this line
+        var current_ornaments: usize = 0;
+
+        for (1..width - 1) |col| {
+            const cell = self.cells[line_num][col];
+            if (cell.cell_type == constants.CellType.ornament or cell.cell_type == constants.CellType.light) {
+                current_ornaments += 1;
+            }
+        }
+
+        // If we already have enough ornaments, return
+        if (current_ornaments >= minimum_ornaments) return;
+
+        // Need to add more ornaments
+        const ornaments_to_add = minimum_ornaments - current_ornaments;
+        var added: usize = 0;
+
+        // Try to add ornaments at valid positions (not adjacent to other ornaments)
+        for (1..width - 1) |col| {
+            if (added >= ornaments_to_add) break;
+
+            const cell = self.cells[line_num][col];
+            // Only consider foliage positions (non-ornaments)
+            if (cell.cell_type == constants.CellType.foliage) {
+                // Check if this position is valid (not adjacent to existing ornaments)
+                var can_place = true;
+
+                // Check left neighbor
+                if (col > 1) {
+                    const left_cell = self.cells[line_num][col - 1];
+                    if (left_cell.cell_type == constants.CellType.ornament or left_cell.cell_type == constants.CellType.light) {
+                        can_place = false;
+                    }
+                }
+
+                // Check right neighbor
+                if (col < width - 2 and can_place) {
+                    const right_cell = self.cells[line_num][col + 1];
+                    if (right_cell.cell_type == constants.CellType.ornament or right_cell.cell_type == constants.CellType.light) {
+                        can_place = false;
+                    }
+                }
+
+                if (can_place) {
+                    // Add an ornament here
+                    const is_light = self.rng.random().float(f32) < 0.4;
+                    const new_type = if (is_light) constants.CellType.light else constants.CellType.ornament;
+                    const new_char = if (is_light) constants.LIGHT_CHAR else constants.ORNAMENT_CHARS[self.rng.random().uintLessThan(usize, constants.ORNAMENT_CHARS.len)];
+                    const new_color = colors.getRandomColorForCell(new_type, self.rng.random());
+
+                    self.cells[line_num][col] = TreeCell{
+                        .char = new_char,
+                        .color = new_color,
+                        .cell_type = new_type,
+                        .changed = true,
+                        .is_fixed = false,
+                    };
+
+                    added += 1;
+                }
+            }
+        }
+    }
+
     pub fn randomizeDecorations(self: *TreeState) void {
         var any_changed = false;
 
@@ -146,7 +231,7 @@ pub const TreeState = struct {
         for (1..constants.TREE_LINES + 1) |line_num| {
             const width = self.width_by_line[line_num];
             if (width > 2) {
-                var prev_was_decoration = false;
+                var prev_was_ornament: bool = false;
 
                 for (1..width - 1) |col| {
                     var cell = &self.cells[line_num][col];
@@ -158,21 +243,29 @@ pub const TreeState = struct {
                         const stability: f32 = if (cell.cell_type == constants.CellType.ornament) constants.ORNAMENT_STABILITY else constants.LIGHT_STABILITY;
                         const rand_val = self.rng.random().float(f32);
 
-                        // Apply spacing rules: only change if won't create adjacent decorations
-                        const should_change = rand_val > stability and !prev_was_decoration;
+                        // Apply spacing rules: only change if previous was not an ornament
+                        const should_change = rand_val > stability and !prev_was_ornament;
 
                         // Check next cell if it exists
-                        var next_will_be_decoration = false;
+                        var next_will_be_ornament = false;
                         if (col < width - 2) {
                             const next_cell = &self.cells[line_num][col + 1];
-                            next_will_be_decoration = next_cell.cell_type == constants.CellType.ornament or next_cell.cell_type == constants.CellType.light;
+                            next_will_be_ornament = next_cell.cell_type == constants.CellType.ornament or next_cell.cell_type == constants.CellType.light;
                         }
 
-                        if (should_change and !next_will_be_decoration) {
+                        if (should_change and !next_will_be_ornament) {
                             // Change this cell
                             const is_light = self.rng.random().float(f32) < 0.4;
                             const new_type = if (is_light) constants.CellType.light else constants.CellType.ornament;
-                            const new_char = if (is_light) constants.LIGHT_CHAR else constants.ORNAMENT_CHARS[self.rng.random().uintLessThan(usize, constants.ORNAMENT_CHARS.len)];
+
+                            // Generate new character - use foliage to separate from previous ornament
+                            var new_char: u8 = undefined;
+                            if (is_light) {
+                                new_char = constants.LIGHT_CHAR;
+                            } else {
+                                new_char = constants.ORNAMENT_CHARS[self.rng.random().uintLessThan(usize, constants.ORNAMENT_CHARS.len)];
+                            }
+
                             const new_color = colors.getRandomColorForCell(new_type, self.rng.random());
 
                             cell.* = TreeCell{
@@ -184,15 +277,20 @@ pub const TreeState = struct {
                             };
 
                             any_changed = true;
-                            prev_was_decoration = true;
+                            prev_was_ornament = true;
                         } else {
-                            cell.changed = false;
-                            prev_was_decoration = false;
+                            // Keep existing cell, use foliage if previous was decoration
+                            if (prev_was_ornament and (cell.cell_type == constants.CellType.ornament or cell.cell_type == constants.CellType.light)) {
+                                // Force foliage between decorations
+                                cell.char = if (self.rng.random().uintLessThan(u8, 2) == 1) constants.FOLIAGE_LEFT else constants.FOLIAGE_RIGHT;
+                                cell.cell_type = constants.CellType.foliage;
+                                cell.changed = true;
+                            }
+                            prev_was_ornament = (cell.cell_type == constants.CellType.ornament or cell.cell_type == constants.CellType.light);
                         }
                     } else {
-                        // Non-decoration cell - could become decoration
-                        cell.changed = false;
-                        prev_was_decoration = false;
+                        // Non-ornament cell
+                        prev_was_ornament = false;
                     }
                 }
             }
@@ -201,6 +299,14 @@ pub const TreeState = struct {
         // If nothing changed, mark one random decoration as changed to prevent animation stalling
         if (!any_changed) {
             self.markOneRandomDecorationChanged();
+        }
+
+        // Ensure minimum ornaments per line after randomization
+        for (1..constants.TREE_LINES + 1) |line_num| {
+            const width = self.width_by_line[line_num];
+            if (width > 2) {
+                self.ensureMinimumOrnaments(line_num, width);
+            }
         }
     }
 
@@ -236,6 +342,9 @@ pub const TreeState = struct {
                             }
                             current_index += 1;
                         }
+
+                        // Ensure minimum ornaments per line to prevent sparse lines
+                        self.ensureMinimumOrnaments(line_num, width);
                     }
                 }
             }

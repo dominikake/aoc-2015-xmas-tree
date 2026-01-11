@@ -1,6 +1,7 @@
 const std = @import("std");
 const tree = @import("../src/tree.zig");
 const constants = @import("../src/constants.zig");
+const colors = @import("../src/colors.zig");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
