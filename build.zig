@@ -54,4 +54,32 @@ pub fn build(b: *std.Build) void {
 
     const test_colors_step = b.step("test-colors", "Run color tests");
     test_colors_step.dependOn(&run_test_colors.step);
+
+    // Add test_renderer module
+    const test_renderer = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/test_renderer.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_test_renderer = b.addRunArtifact(test_renderer);
+
+    const test_renderer_step = b.step("test-renderer", "Run renderer tests");
+    test_renderer_step.dependOn(&run_test_renderer.step);
+
+    // Add test_tree module
+    const test_tree = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/test_tree.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_test_tree = b.addRunArtifact(test_tree);
+
+    const test_tree_step = b.step("test-tree", "Run tree tests");
+    test_tree_step.dependOn(&run_test_tree.step);
 }
